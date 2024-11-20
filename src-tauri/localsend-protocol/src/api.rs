@@ -1,4 +1,4 @@
-use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{net::SocketAddr, path::PathBuf, sync::Arc};
 
 use axum::{
     body::BodyDataStream,
@@ -10,19 +10,17 @@ use serde::Deserialize;
 use tokio::{
     fs::File,
     io::{AsyncWriteExt, BufWriter},
-    sync::RwLock,
 };
 use tokio_stream::StreamExt;
 
 use crate::{
     mission::Mission,
-    model::{DeviceMessage, FileRequest, FileResponse, UploadParam},
+    model::{DeviceMessage, FileRequest, FileResponse, UploadParam}, server::ServerHandle,
 };
 
 #[derive(Clone)]
 pub struct AppState {
-    pub devices: Arc<RwLock<HashMap<String, (SocketAddr, DeviceMessage)>>>,
-    pub messions: Arc<RwLock<HashMap<String, Mission>>>,
+    pub handel: Arc<ServerHandle>,
 }
 
 pub async fn handle_register(
@@ -30,28 +28,29 @@ pub async fn handle_register(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Json(payload): Json<DeviceMessage>,
 ) {
-    let mut devices = state.devices.write().await;
-    devices.insert(payload.fingerprint.to_owned(), (addr, payload));
+    dbg!("register", &payload);
+    state.handel.insert_device(payload.fingerprint.to_owned(), addr, payload).await;
 }
 
 pub async fn handle_prepare_upload(
     State(state): State<AppState>,
     Json(payload): Json<FileRequest>,
 ) -> Result<Json<FileResponse>, StatusCode> {
-    let divices = state.devices.read().await;
-    let device = if let Some(device) = divices.get(&payload.info.fingerprint) {
+    dbg!("prepare_upload", &payload);
+    let device = if let Some(device) = state.handel.get_device(payload.info.fingerprint).await {
         device.clone()
     } else {
         return Err(StatusCode::FORBIDDEN);
     };
 
-    let mission = Mission::new(payload.files, device.1);
+    let mission = Mission::new(payload.files, device);
 
     // TODO: 同意判断
-    let mut messions = state.messions.write().await;
-    messions.insert(mission.id.clone(), mission.clone());
 
-    let file_resp = FileResponse {
+    // 新建下载任务
+    state.handel.insert_mission(mission.id.clone(), mission.clone()).await;
+
+    let file_resp: FileResponse = FileResponse {
         session_id: mission.id,
         files: mission.id_token_map,
     };
@@ -64,15 +63,14 @@ pub async fn handle_upload(
     request: Request,
 ) -> Result<(), StatusCode> {
     let param = param.0;
-    let mission = state.messions.read().await;
-    let mission = match mission.get(&param.session_id) {
+    let mission = match state.handel.get_mission(param.session_id).await {
         Some(m) => m,
         None => return Err(StatusCode::FORBIDDEN),
     };
-    let store_path = "/Users/cakeal/Downloads";
+    let store_path = state.handel.get_store_path().await;
     let file = mission.info_map.get(&param.file_id).unwrap();
     let body_stream = request.into_body().into_data_stream();
-    save_to_file(store_path, &file.file_name, body_stream)
+    save_to_file(&store_path, &file.file_name, body_stream)
         .await
         .map_err(|e| {
             eprintln!("Error saving file: {}", e);
@@ -109,10 +107,7 @@ pub struct SessionId {
     pub id: String,
 }
 
-pub async fn cancel(
-    State(state): State<AppState>,
-    session_id: Query<SessionId>,
-) {
+pub async fn cancel(State(state): State<AppState>, session_id: Query<SessionId>) {
     // TODO:
 }
 

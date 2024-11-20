@@ -4,17 +4,18 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::{DeviceMessage, FileInfo};
 
+// 下载任务
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Mission {
     pub id: String,
-    pub sender: DeviceMessage,
+    pub sender_device: DeviceMessage,
     pub id_token_map: HashMap<String, String>,
     pub token_id_map: HashMap<String, String>,
     pub info_map: HashMap<String, FileInfo>,
 }
 
 impl Mission {
-    pub fn new(info_map: HashMap<String, FileInfo>, sender: DeviceMessage) -> Self {
+    pub fn new(info_map: HashMap<String, FileInfo>, sender_device: DeviceMessage) -> Self {
         let id = uuid::Uuid::new_v4().to_string();
         let mut id_token_map = HashMap::new();
         let mut token_id_map = HashMap::new();
@@ -25,7 +26,7 @@ impl Mission {
         });
         Self {
             id,
-            sender,
+            sender_device,
             id_token_map,
             token_id_map,
             info_map,
