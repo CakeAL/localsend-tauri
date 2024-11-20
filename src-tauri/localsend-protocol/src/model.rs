@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DeviceType {
     Mobile,
@@ -13,16 +13,16 @@ pub enum DeviceType {
     Server,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Protocol {
     Http,
     Https,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct Message {
+pub struct DeviceMessage {
     pub alias: String,
     pub version: String, // protocol version (major.minor)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -42,11 +42,11 @@ pub struct Message {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileRequest {
-    pub info: Message,
+    pub info: DeviceMessage,
     pub files: HashMap<String, FileInfo>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct FileInfo {
     pub id: String,
@@ -64,4 +64,12 @@ pub struct FileInfo {
 pub struct FileResponse {
     pub session_id: String,
     pub files: HashMap<String, String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadParam {
+    pub session_id: String,
+    pub file_id: String,
+    pub token: String,
 }

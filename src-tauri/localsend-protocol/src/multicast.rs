@@ -5,9 +5,9 @@ use std::{
 
 use tokio::net::UdpSocket;
 
-use crate::model::Message;
+use crate::model::DeviceMessage;
 
-pub async fn multicast_message(recv_addr: &SocketAddrV4, message: Message) -> io::Result<()> {
+pub async fn multicast_message(recv_addr: &SocketAddrV4, message: DeviceMessage) -> io::Result<()> {
     let local_addr: SocketAddrV4 = "0.0.0.0:0".parse().unwrap();
     let socket = UdpSocket::bind(&local_addr).await?;
     let message = serde_json::json!(message).to_string();
@@ -17,13 +17,13 @@ pub async fn multicast_message(recv_addr: &SocketAddrV4, message: Message) -> io
         .map(|_| ())
 }
 
-pub async fn multicast_listener(addr: &SocketAddrV4) -> io::Result<(Message, SocketAddr)> {
+pub async fn multicast_listener(addr: &SocketAddrV4) -> io::Result<(DeviceMessage, SocketAddr)> {
     let local_addr = SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, addr.port());
     let socket = UdpSocket::bind(&local_addr).await?;
     socket.join_multicast_v4(addr.ip().to_owned(), Ipv4Addr::UNSPECIFIED)?;
     let mut buf = vec![0u8; 1024];
     let (len, sender_addr) = socket.recv_from(&mut buf).await?;
-    let message = serde_json::from_slice::<Message>(&buf[..len]).unwrap_or_default();
+    let message = serde_json::from_slice::<DeviceMessage>(&buf[..len]).unwrap_or_default();
     Ok((message, sender_addr))
 }
 
@@ -36,7 +36,7 @@ mod tests {
     #[tokio::test]
     async fn test_send_message() {
         let recv: SocketAddrV4 = "224.0.0.167:53317".parse().unwrap();
-        let message = Message {
+        let message = DeviceMessage {
             alias: "test-client".to_string(),
             version: "2.1".to_string(),
             device_model: Some("Test Model".to_string()),
