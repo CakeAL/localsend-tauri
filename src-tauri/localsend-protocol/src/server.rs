@@ -184,7 +184,7 @@ impl Server {
                     Ok(msg) => msg,
                     Err(e) => {
                         // 一般是由于已经有在监听的设备了，终止监听
-                        eprintln!("Error listening: {}", e);
+                        log::error!("Error multicast listening: {}", e);
                         return;
                     }
                 };
@@ -221,15 +221,15 @@ impl Server {
         let http_server = Router::new()
             .route("/api/localsend/v2/register", post(handle_register))
             .route(
-                "/api/localsend/v2/prepare-upload",
-                post(handle_prepare_upload),
-            )
+                "/api/localsend/v2/prepare-upload",post(handle_prepare_upload),)
             .route("/api/localsend/v2/upload", post(handle_upload))
             .with_state(crate::api::AppState {
                 handel: Arc::new(ServerHandle { inner_sender: itx }),
             });
         let addr = format!("0.0.0.0:{}", self.state.setting.port).parse::<SocketAddrV4>()?;
         let listener = tokio::net::TcpListener::bind(addr).await?;
+
+        log::info!("Server started on {addr:?}");
         axum::serve(
             listener,
             http_server.into_make_service_with_connect_info::<SocketAddr>(),

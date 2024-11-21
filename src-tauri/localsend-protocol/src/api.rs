@@ -15,7 +15,8 @@ use tokio_stream::StreamExt;
 
 use crate::{
     mission::Mission,
-    model::{DeviceMessage, FileRequest, FileResponse, UploadParam}, server::ServerHandle,
+    model::{DeviceMessage, FileRequest, FileResponse, UploadParam},
+    server::ServerHandle,
 };
 
 #[derive(Clone)]
@@ -28,15 +29,18 @@ pub async fn handle_register(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Json(payload): Json<DeviceMessage>,
 ) {
-    dbg!("register", &payload);
-    state.handel.insert_device(payload.fingerprint.to_owned(), addr, payload).await;
+    log::info!("register: {:?}, from: {:?}", &payload, &addr);
+    state
+        .handel
+        .insert_device(payload.fingerprint.to_owned(), addr, payload)
+        .await;
 }
 
 pub async fn handle_prepare_upload(
     State(state): State<AppState>,
     Json(payload): Json<FileRequest>,
 ) -> Result<Json<FileResponse>, StatusCode> {
-    dbg!("prepare_upload", &payload);
+    log::info!("prepare_upload: {:?}", &payload);
     let device = if let Some(device) = state.handel.get_device(payload.info.fingerprint).await {
         device.clone()
     } else {
@@ -48,12 +52,16 @@ pub async fn handle_prepare_upload(
     // TODO: 同意判断
 
     // 新建下载任务
-    state.handel.insert_mission(mission.id.clone(), mission.clone()).await;
+    state
+        .handel
+        .insert_mission(mission.id.clone(), mission.clone())
+        .await;
 
     let file_resp: FileResponse = FileResponse {
         session_id: mission.id,
         files: mission.id_token_map,
     };
+    log::info!("agreed upload: {:?}", file_resp);
     Ok(Json(file_resp))
 }
 
@@ -62,6 +70,7 @@ pub async fn handle_upload(
     param: Query<UploadParam>,
     request: Request,
 ) -> Result<(), StatusCode> {
+    log::info!("upload: {:?}", param);
     let param = param.0;
     let mission = match state.handel.get_mission(param.session_id).await {
         Some(m) => m,

@@ -11,6 +11,7 @@ pub async fn multicast_message(recv_addr: &SocketAddrV4, message: DeviceMessage)
     let local_addr: SocketAddrV4 = "0.0.0.0:0".parse().unwrap();
     let socket = UdpSocket::bind(&local_addr).await?;
     let message = serde_json::json!(message).to_string();
+    log::info!("Send multicast message on {:?}", socket);
     socket
         .send_to(message.as_bytes(), &recv_addr)
         .await
@@ -22,8 +23,10 @@ pub async fn multicast_listener(addr: &SocketAddrV4) -> io::Result<(DeviceMessag
     let socket = UdpSocket::bind(&local_addr).await?;
     socket.join_multicast_v4(addr.ip().to_owned(), Ipv4Addr::UNSPECIFIED)?;
     let mut buf = vec![0u8; 1024];
+    log::info!("start multicast listening on {:?}", socket);
     let (len, sender_addr) = socket.recv_from(&mut buf).await?;
     let message = serde_json::from_slice::<DeviceMessage>(&buf[..len]).unwrap_or_default();
+    log::info!("accept message from multicast: {:?}", message);
     Ok((message, sender_addr))
 }
 
