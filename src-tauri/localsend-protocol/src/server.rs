@@ -1,12 +1,11 @@
 use std::{
     collections::HashMap,
     net::{SocketAddr, SocketAddrV4},
-    sync::Arc,
+    sync::Arc, time::Duration,
 };
 
 use axum::{routing::post, Router};
 use tokio::sync::{mpsc, oneshot, RwLock};
-use uuid::Uuid;
 
 use crate::{
     api::{handle_prepare_upload, handle_register, handle_upload},
@@ -26,6 +25,23 @@ pub struct ServerSetting {
     pub interface_addr: String,
     pub multicast_addr: String,
     pub store_path: String,
+    pub fingerprint: String,
+}
+
+impl ServerSetting {
+    pub fn to_device_message(&self, announce: Option<bool>) -> DeviceMessage {
+        DeviceMessage {
+            alias: self.alias.clone(),
+            version: "2.1".to_string(),
+            device_model: self.device_model.clone(),
+            device_type: self.device_type.clone(),
+            fingerprint: self.fingerprint.clone(),
+            port: Some(self.port),
+            protocol: self.protocol.clone(),
+            download: self.download,
+            announce,
+        }
+    }
 }
 
 impl Default for ServerSetting {
@@ -40,13 +56,13 @@ impl Default for ServerSetting {
             interface_addr: "0.0.0.0".to_string(),
             multicast_addr: "224.0.0.167".to_string(),
             store_path: "/Users/cakeal/Downloads".to_string(),
+            fingerprint: "".to_string(),
         }
     }
 }
 
 pub struct ServerState {
     setting: ServerSetting,
-    fingerprint: String,
     devices: RwLock<HashMap<String, (SocketAddr, DeviceMessage)>>,
     misssions: RwLock<HashMap<String, Mission>>,
 }
@@ -58,6 +74,7 @@ pub enum ServerMessage {
 pub enum OutMessage {}
 
 pub enum InnerMessage {
+    GetMyself(oneshot::Sender<DeviceMessage>),
     AddDevice(String, SocketAddr, DeviceMessage),
     GetDevice(String, oneshot::Sender<Option<DeviceMessage>>),
     AddMission(String, Mission),
@@ -77,6 +94,16 @@ pub struct ServerHandle {
 }
 
 impl ServerHandle {
+    pub async fn get_myself(&self) -> Option<DeviceMessage> {
+        let (tx, rx) = oneshot::channel();
+        let _ = self.inner_sender.send(InnerMessage::GetMyself(tx)).await;
+
+        match rx.await {
+            Err(_) => None,
+            Ok(device) => Some(device),
+        }
+    }
+
     pub async fn insert_device(
         &self,
         fingerprint: String,
@@ -143,7 +170,6 @@ impl Server {
             Self {
                 state: Arc::new(ServerState {
                     setting,
-                    fingerprint: Uuid::new_v4().to_string(),
                     devices: RwLock::new(HashMap::new()),
                     misssions: RwLock::new(HashMap::new()),
                 }),
@@ -160,20 +186,18 @@ impl Server {
             self.state.setting.multicast_addr, self.state.setting.port
         )
         .parse::<SocketAddrV4>()?;
-        let device_message = DeviceMessage {
-            alias: self.state.setting.alias.clone(),
-            version: "2.1".to_string(),
-            device_model: self.state.setting.device_model.clone(),
-            device_type: self.state.setting.device_type.clone(),
-            fingerprint: self.state.fingerprint.clone(),
-            port: Some(self.state.setting.port),
-            protocol: self.state.setting.protocol.clone(),
-            download: self.state.setting.download,
-            announce: Some(true),
-        };
+        let device_message = self.state.setting.to_device_message(Some(true));
 
         // 发送组播消息
-        multicast_message(&recv_addr, device_message).await?;
+        multicast_message(&recv_addr, &device_message).await?;
+        // let _ = tokio::spawn(async move {
+        //     loop {
+        //         if let Err(e) = multicast_message(&recv_addr, &device_message).await {
+        //             log::error!("Error multicast sending: {}", e);
+        //         }
+        //         tokio::time::sleep(Duration::from_secs(5)).await;
+        //     }
+        // });
 
         // 监听组播
         let state1 = self.state.clone();
@@ -221,7 +245,9 @@ impl Server {
         let http_server = Router::new()
             .route("/api/localsend/v2/register", post(handle_register))
             .route(
-                "/api/localsend/v2/prepare-upload",post(handle_prepare_upload),)
+                "/api/localsend/v2/prepare-upload",
+                post(handle_prepare_upload),
+            )
             .route("/api/localsend/v2/upload", post(handle_upload))
             .with_state(crate::api::AppState {
                 handel: Arc::new(ServerHandle { inner_sender: itx }),
@@ -243,6 +269,9 @@ impl Server {
 impl ServerState {
     pub async fn handle_inner_message(&self, message: InnerMessage) {
         match message {
+            InnerMessage::GetMyself(tx) => {
+                let _ = tx.send(self.setting.to_device_message(None));
+            }
             InnerMessage::AddDevice(fingerprint, addr, device) => {
                 let mut devices = self.devices.write().await;
                 if !devices.contains_key(&fingerprint) {

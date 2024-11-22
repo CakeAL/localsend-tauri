@@ -28,12 +28,16 @@ pub async fn handle_register(
     State(state): State<AppState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Json(payload): Json<DeviceMessage>,
-) {
+) -> Result<Json<DeviceMessage>, ()> {
     log::info!("register: {:?}, from: {:?}", &payload, &addr);
     state
         .handel
         .insert_device(payload.fingerprint.to_owned(), addr, payload)
         .await;
+    match state.handel.get_myself().await {
+        Some(device) => Ok(Json(device)),
+        None => Err(()),
+    }
 }
 
 pub async fn handle_prepare_upload(
