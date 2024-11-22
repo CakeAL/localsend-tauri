@@ -25,19 +25,18 @@ pub async fn send_register(
 pub async fn prepare_upload(
     file_req: &FileRequest,
     addr: &SocketAddr,
-) -> Result<FileResponse, reqwest::Error> {
+) -> Result<FileResponse, Box<dyn std::error::Error>> {
     let url = format!(
         "http://{}/api/localsend/v2/prepare_upload",
         addr.to_string()
     );
-    Client::new()
+    let response = Client::new()
         .post(url)
         .body(serde_json::json!(file_req).to_string())
         .timeout(Duration::from_secs(60))
         .send()
-        .await?
-        .json()
-        .await
+        .await?;
+    Ok(serde_json::from_slice(&response.bytes().await?)?)
 }
 
 pub async fn upload(
@@ -57,11 +56,11 @@ pub async fn upload(
     Ok(())
 }
 
-pub async fn cancel(sessionId: String, addr: &SocketAddr) -> Result<(), reqwest::Error> {
+pub async fn cancel(session_id: String, addr: &SocketAddr) -> Result<(), reqwest::Error> {
     let url = format!(
         "http://{}/api/localsend/v2/cancel?sessionId={}",
         addr.to_string(),
-        sessionId
+        session_id
     );
     Client::new().post(url).send().await?;
     Ok(())

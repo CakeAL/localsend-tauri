@@ -1,7 +1,7 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     net::{SocketAddr, SocketAddrV4},
-    sync::Arc, time::Duration,
+    sync::Arc,
 };
 
 use axum::{routing::post, Router};
@@ -10,7 +10,7 @@ use tokio::sync::{mpsc, oneshot, RwLock};
 use crate::{
     api::{handle_prepare_upload, handle_register, handle_upload},
     mission::Mission,
-    model::{DeviceMessage, DeviceType, Protocol},
+    model::{DeviceMessage, DeviceType, FileRequest, Protocol},
     multicast::{multicast_listener, multicast_message},
 };
 
@@ -65,18 +65,24 @@ pub struct ServerState {
     setting: ServerSetting,
     devices: RwLock<HashMap<String, (SocketAddr, DeviceMessage)>>,
     misssions: RwLock<HashMap<String, Mission>>,
+    sender: mpsc::Sender<ServerMessage>, // 从 Server 发出消息
+    receiver: RwLock<mpsc::Receiver<OutMessage>>, // 从外部接受消息
 }
 
 pub enum ServerMessage {
-    DeviceConnect(SocketAddr, DeviceMessage),
+    DeviceConnect(SocketAddr, DeviceMessage), // 设备连接
+    FilePrepareUpload(FileRequest),           // 文件传入
 }
 
-pub enum OutMessage {}
+pub enum OutMessage {
+    FileAgreedUpload(HashSet<String>), // 同意文件传入的File Id Vec
+}
 
 pub enum InnerMessage {
     GetMyself(oneshot::Sender<DeviceMessage>),
     AddDevice(String, SocketAddr, DeviceMessage),
     GetDevice(String, oneshot::Sender<Option<DeviceMessage>>),
+    FilePrepareUpload(FileRequest, oneshot::Sender<HashSet<String>>),
     AddMission(String, Mission),
     GetMission(String, oneshot::Sender<Option<Mission>>),
     GetStorePath(oneshot::Sender<String>),
@@ -84,8 +90,6 @@ pub enum InnerMessage {
 
 pub struct Server {
     state: Arc<ServerState>,
-    sender: mpsc::Sender<ServerMessage>,  // 从 Server 发出消息
-    receiver: mpsc::Receiver<OutMessage>, // 从外部接受消息
 }
 
 #[derive(Debug, Clone)]
@@ -129,6 +133,18 @@ impl ServerHandle {
         }
     }
 
+    pub async fn prepare_upload(&self, file_req: FileRequest) -> HashSet<String> {
+        let (tx, rx) = oneshot::channel();
+        let _ = self
+            .inner_sender
+            .send(InnerMessage::FilePrepareUpload(file_req, tx))
+            .await;
+        match rx.await {
+            Err(_) => HashSet::new(),
+            Ok(ids) => ids,
+        }
+    }
+
     pub async fn insert_mission(&self, mission_id: String, mission: Mission) {
         let _ = self
             .inner_sender
@@ -169,12 +185,12 @@ impl Server {
         (
             Self {
                 state: Arc::new(ServerState {
+                    sender: tx,
                     setting,
                     devices: RwLock::new(HashMap::new()),
                     misssions: RwLock::new(HashMap::new()),
+                    receiver: RwLock::new(receiver),
                 }),
-                sender: tx,
-                receiver,
             },
             rx,
         )
@@ -201,7 +217,6 @@ impl Server {
 
         // 监听组播
         let state1 = self.state.clone();
-        let sender = self.sender.clone();
         let _ = tokio::spawn(async move {
             loop {
                 let (device_message, sender_addr) = match multicast_listener(&recv_addr).await {
@@ -219,7 +234,8 @@ impl Server {
                         device_message.fingerprint.to_owned(),
                         (sender_addr, device_message.clone()),
                     );
-                    sender
+                    state1
+                        .sender
                         .send(ServerMessage::DeviceConnect(sender_addr, device_message))
                         .await
                         .unwrap();
@@ -275,18 +291,31 @@ impl ServerState {
             InnerMessage::AddDevice(fingerprint, addr, device) => {
                 let mut devices = self.devices.write().await;
                 if !devices.contains_key(&fingerprint) {
-                    devices.insert(fingerprint.clone(), (addr, device.clone()));
+                    log::info!("register: {:?}, from: {:?}", &device, &addr);
                     // 通知外部接入设备
-                    // self.sender
-                    //     .send(ServerMessage::DeviceConnect(addr, device))
-                    //     .await
-                    //     .unwrap();
+                    self.sender
+                        .send(ServerMessage::DeviceConnect(addr, device.clone()))
+                        .await
+                        .unwrap();
+                    devices.insert(fingerprint.clone(), (addr, device));
                 }
             }
             InnerMessage::GetDevice(fingerprint, tx) => {
                 let devices = self.devices.read().await;
                 if let Some(device) = devices.get(&fingerprint) {
                     let _ = tx.send(Some(device.1.clone()));
+                }
+            }
+            InnerMessage::FilePrepareUpload(file_req, tx) => {
+                let _ = self
+                    .sender
+                    .send(ServerMessage::FilePrepareUpload(file_req))
+                    .await;
+                // 等待外部同意文件上传请求
+                if let Some(OutMessage::FileAgreedUpload(agreed)) =
+                    self.receiver.write().await.recv().await
+                {
+                    tx.send(agreed).unwrap();
                 }
             }
             InnerMessage::AddMission(mission_id, mission) => {

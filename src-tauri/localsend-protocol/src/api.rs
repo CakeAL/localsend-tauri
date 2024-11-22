@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use axum::{
     body::BodyDataStream,
@@ -15,7 +15,7 @@ use tokio_stream::StreamExt;
 
 use crate::{
     mission::Mission,
-    model::{DeviceMessage, FileRequest, FileResponse, UploadParam},
+    model::{DeviceMessage, FileInfo, FileRequest, FileResponse, UploadParam},
     server::ServerHandle,
 };
 
@@ -29,7 +29,6 @@ pub async fn handle_register(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Json(payload): Json<DeviceMessage>,
 ) -> Result<Json<DeviceMessage>, ()> {
-    log::info!("register: {:?}, from: {:?}", &payload, &addr);
     state
         .handel
         .insert_device(payload.fingerprint.to_owned(), addr, payload)
@@ -45,16 +44,17 @@ pub async fn handle_prepare_upload(
     Json(payload): Json<FileRequest>,
 ) -> Result<Json<FileResponse>, StatusCode> {
     log::info!("prepare_upload: {:?}", &payload);
-    let device = if let Some(device) = state.handel.get_device(payload.info.fingerprint).await {
+    let device = if let Some(device) = state.handel.get_device(payload.info.fingerprint.clone()).await {
         device.clone()
     } else {
         return Err(StatusCode::FORBIDDEN);
     };
 
-    let mission = Mission::new(payload.files, device);
-
-    // TODO: 同意判断
-
+    // 获取同意下载的文件id
+    let agreed_ids = state.handel.prepare_upload(payload.clone()).await;
+    // 过滤禁止传输的文件
+    let files: HashMap<String, FileInfo> = payload.files.into_iter().filter(|(file_id, _)| agreed_ids.contains(file_id)).collect();
+    let mission = Mission::new(files, device);
     // 新建下载任务
     state
         .handel

@@ -39,7 +39,7 @@ pub struct DeviceMessage {
     pub announce: Option<bool>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileRequest {
     pub info: DeviceMessage,
