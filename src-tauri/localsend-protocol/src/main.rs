@@ -45,6 +45,15 @@ async fn main() {
                             .collect::<HashSet<String>>();
                         let _ = out_tx.send(OutMessage::FileAgreedUpload(agreed_ids)).await;
                     }
+                    ServerMessage::Progress(file_id, mut rx) => {
+                        while rx.changed().await.is_ok() {
+                            println!("file_id: {file_id}, rx: {}", *rx.borrow());
+                        }
+                        println!("file_id: {file_id}, finished");
+                    }
+                    ServerMessage::CancelMission(mission_id) => {
+                        log::info!("Mission cancelled: {mission_id:?}");
+                    }
                 }
             }
         }

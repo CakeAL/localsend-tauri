@@ -1,4 +1,4 @@
-use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
 use axum::{
     body::BodyDataStream,
@@ -9,7 +9,7 @@ use axum::{
 use serde::Deserialize;
 use tokio::{
     fs::File,
-    io::{AsyncWriteExt, BufWriter},
+    io::{AsyncWriteExt, BufWriter}, sync::watch, time,
 };
 use tokio_stream::StreamExt;
 
@@ -50,9 +50,9 @@ pub async fn handle_prepare_upload(
         return Err(StatusCode::FORBIDDEN);
     };
 
-    // 获取同意下载的文件id
+    // 获取同意下载的文件 id
     let agreed_ids = state.handel.prepare_upload(payload.clone()).await;
-    // 过滤禁止传输的文件
+    // 过滤取消传输的文件
     let files: HashMap<String, FileInfo> = payload.files.into_iter().filter(|(file_id, _)| agreed_ids.contains(file_id)).collect();
     let mission = Mission::new(files, device);
     // 新建下载任务
@@ -74,19 +74,18 @@ pub async fn handle_upload(
     param: Query<UploadParam>,
     request: Request,
 ) -> Result<(), StatusCode> {
-    log::info!("upload: {:?}", param);
     let param = param.0;
-    let mission = match state.handel.get_mission(param.session_id).await {
-        Some(m) => m,
+    log::info!("upload: {:?}", param);
+    let (file, tx) = match state.handel.get_file_info(param).await {
+        Some(r) => r,
         None => return Err(StatusCode::FORBIDDEN),
     };
     let store_path = state.handel.get_store_path().await;
-    let file = mission.info_map.get(&param.file_id).unwrap();
     let body_stream = request.into_body().into_data_stream();
-    save_to_file(&store_path, &file.file_name, body_stream)
+    save_to_file(&store_path, &file.file_name, body_stream, tx)
         .await
         .map_err(|e| {
-            eprintln!("Error saving file: {}", e);
+            log::error!("Error saving file: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })
 }
@@ -95,22 +94,42 @@ async fn save_to_file(
     dir: &str,
     file_name: &str,
     stream: BodyDataStream,
+    progress: watch::Sender<usize>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let file_path = PathBuf::from(dir).join(file_name);
     let file = File::create(file_path).await?;
     let mut writer = BufWriter::new(file);
     let mut stream =
         stream.map(|res| res.map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err)));
-    while let Some(chunk_res) = stream.next().await {
-        match chunk_res {
-            Ok(chunk) => {
-                writer.write_all(&chunk).await?;
+    // 初始化定时器
+    let mut interval = time::interval(Duration::from_millis(100));
+    let mut total_written = 0usize;
+    
+    // 更新进度
+    loop {
+        tokio::select! {
+            _ = interval.tick() => {
+                let _ = progress.send(total_written);
             }
-            Err(err) => {
-                return Err(Box::new(err));
+            chunk_res = stream.next() => {
+                match chunk_res {
+                    Some(Ok(chunk)) => {
+                        writer.write_all(&chunk).await?;
+                        total_written += chunk.len();
+                    }
+                    Some(Err(err)) => {
+                        return Err(Box::new(err));
+                    }
+                    None => {
+                        // 完成该文件传输
+                        let _ = progress.send(total_written);
+                        break;
+                    }
+                }
             }
         }
     }
+    writer.flush().await?;
     Ok(())
 }
 
@@ -120,9 +139,10 @@ pub struct SessionId {
     pub id: String,
 }
 
-pub async fn cancel(State(state): State<AppState>, session_id: Query<SessionId>) {
-    // TODO:
+pub async fn handel_cancel(State(state): State<AppState>, session_id: Query<SessionId>) {
+    let session_id = session_id.0.id;
+    state.handel.cancel_mission(session_id).await;
 }
 
-// TODO: 3.2 HTTP Legacy Mode 未实现
-// TODO: 5 下载 API 未实现
+// 3.2 HTTP Legacy Mode 未实现
+// 5 下载 API 未实现

@@ -1,17 +1,18 @@
 use std::{
     collections::{HashMap, HashSet},
-    net::{SocketAddr, SocketAddrV4},
+    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     sync::Arc,
 };
 
 use axum::{routing::post, Router};
-use tokio::sync::{mpsc, oneshot, RwLock};
+use tokio::sync::{mpsc, oneshot, watch, RwLock};
 
 use crate::{
-    api::{handle_prepare_upload, handle_register, handle_upload},
+    api::*,
     mission::Mission,
-    model::{DeviceMessage, DeviceType, FileRequest, Protocol},
+    model::{DeviceMessage, DeviceType, FileInfo, FileRequest, Protocol, UploadParam},
     multicast::{multicast_listener, multicast_message},
+    request::send_register,
 };
 
 #[derive(Clone, Debug)]
@@ -72,9 +73,12 @@ pub struct ServerState {
 pub enum ServerMessage {
     DeviceConnect(SocketAddr, DeviceMessage), // 设备连接
     FilePrepareUpload(FileRequest),           // 文件传入
+    Progress(String, watch::Receiver<usize>), // 某个文件id的下载进度条
+    CancelMission(Option<Mission>),           // 任务被取消
 }
 
 pub enum OutMessage {
+    Refresh,                           // 重新发送一次组播消息
     FileAgreedUpload(HashSet<String>), // 同意文件传入的File Id Vec
 }
 
@@ -85,7 +89,12 @@ pub enum InnerMessage {
     FilePrepareUpload(FileRequest, oneshot::Sender<HashSet<String>>),
     AddMission(String, Mission),
     GetMission(String, oneshot::Sender<Option<Mission>>),
+    GetFileInfo(
+        UploadParam,
+        oneshot::Sender<Option<(FileInfo, watch::Sender<usize>)>>,
+    ),
     GetStorePath(oneshot::Sender<String>),
+    CancelMission(String),
 }
 
 pub struct Server {
@@ -161,7 +170,23 @@ impl ServerHandle {
 
         match rx.await {
             Err(_) => None,
-            Ok(mission) => mission,
+            Ok(m) => m,
+        }
+    }
+
+    pub async fn get_file_info(
+        &self,
+        param: UploadParam,
+    ) -> Option<(FileInfo, watch::Sender<usize>)> {
+        let (tx, rx) = oneshot::channel();
+        let _ = self
+            .inner_sender
+            .send(InnerMessage::GetFileInfo(param, tx))
+            .await;
+
+        match rx.await {
+            Err(_) => None,
+            Ok(r) => r,
         }
     }
 
@@ -173,6 +198,13 @@ impl ServerHandle {
             Err(_) => "".to_string(),
             Ok(path) => path,
         }
+    }
+
+    pub async fn cancel_mission(&self, mission_id: String) {
+        let _ = self
+            .inner_sender
+            .send(InnerMessage::CancelMission(mission_id))
+            .await;
     }
 }
 
@@ -197,26 +229,14 @@ impl Server {
     }
 
     pub async fn start(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let recv_addr = format!(
-            "{}:{}",
-            self.state.setting.multicast_addr, self.state.setting.port
-        )
-        .parse::<SocketAddrV4>()?;
-        let device_message = self.state.setting.to_device_message(Some(true));
-
         // 发送组播消息
-        multicast_message(&recv_addr, &device_message).await?;
-        // let _ = tokio::spawn(async move {
-        //     loop {
-        //         if let Err(e) = multicast_message(&recv_addr, &device_message).await {
-        //             log::error!("Error multicast sending: {}", e);
-        //         }
-        //         tokio::time::sleep(Duration::from_secs(5)).await;
-        //     }
-        // });
+        self.state.handle_out_message(OutMessage::Refresh).await;
 
         // 监听组播
         let state1 = self.state.clone();
+        let recv_addr = format!("{}:{}", self.state.setting.multicast_addr, self.state.setting.port)
+                    .parse::<SocketAddrV4>()
+                    .unwrap_or(SocketAddrV4::new(Ipv4Addr::new(224, 0, 0, 167), 53317));
         let _ = tokio::spawn(async move {
             loop {
                 let (device_message, sender_addr) = match multicast_listener(&recv_addr).await {
@@ -257,6 +277,19 @@ impl Server {
             }
         });
 
+        // 监听服务器外部消息
+        let state = self.state.clone();
+        let _ = tokio::spawn(async move {
+            loop {
+                match state.receiver.write().await.recv().await {
+                    Some(message) => {
+                        state.handle_out_message(message).await;
+                    }
+                    None => {}
+                }
+            }
+        });
+
         // http_server
         let http_server = Router::new()
             .route("/api/localsend/v2/register", post(handle_register))
@@ -265,6 +298,7 @@ impl Server {
                 post(handle_prepare_upload),
             )
             .route("/api/localsend/v2/upload", post(handle_upload))
+            .route("/api/localsend/v2/cancel", post(handel_cancel))
             .with_state(crate::api::AppState {
                 handel: Arc::new(ServerHandle { inner_sender: itx }),
             });
@@ -326,11 +360,71 @@ impl ServerState {
                 let missions = self.misssions.read().await;
                 if let Some(mission) = missions.get(&mission_id) {
                     let _ = tx.send(Some(mission.clone()));
+                } else {
+                    let _ = tx.send(None);
                 }
+            }
+            InnerMessage::GetFileInfo(param, tx) => {
+                // 从 `self.missions` 中读取任务
+                let missions = self.misssions.read().await;
+                let mission = match missions.get(&param.session_id) {
+                    Some(mission) => mission,
+                    None => {
+                        let _ = tx.send(None);
+                        return;
+                    }
+                };
+                // 从 `token_id_map` 获取 `id` 并判断 id 是否和传入的id相同
+                let _ = match mission.id_token_map.get(&param.file_id) {
+                    Some(token) if token == &param.token => token,
+                    _ => {
+                        let _ = tx.send(None);
+                        return;
+                    }
+                };
+                // 发送进度到外部
+                let (progress_tx, progress_rx) = watch::channel(0);
+                let _ = self
+                    .sender
+                    .send(ServerMessage::Progress(
+                        param.file_id.to_owned(),
+                        progress_rx,
+                    ))
+                    .await;
+                // 从 `info_map` 获取文件信息
+                let file = mission.info_map.get(&param.file_id).cloned();
+                let _ = tx.send(file.map(|file| (file, progress_tx)));
             }
             InnerMessage::GetStorePath(tx) => {
                 let _ = tx.send(self.setting.store_path.clone());
             }
+            InnerMessage::CancelMission(mission_id) => {
+                let mission = self.misssions.write().await.remove(&mission_id);
+                let _ = self
+                    .sender
+                    .send(ServerMessage::CancelMission(mission))
+                    .await;
+            }
+        }
+    }
+
+    pub async fn handle_out_message(&self, message: OutMessage) {
+        match message {
+            OutMessage::Refresh => {
+                let recv_addr = format!("{}:{}", self.setting.multicast_addr, self.setting.port)
+                    .parse::<SocketAddrV4>()
+                    .unwrap_or(SocketAddrV4::new(Ipv4Addr::new(224, 0, 0, 167), 53317));
+                let device_message = self.setting.to_device_message(Some(true));
+
+                // 发送组播消息
+                match multicast_message(&recv_addr, &device_message).await {
+                    Ok(_) => {}
+                    Err(e) => {
+                        log::error!("Send multicast message error: {}", e);
+                    }
+                }
+            }
+            _ => {}
         }
     }
 }
