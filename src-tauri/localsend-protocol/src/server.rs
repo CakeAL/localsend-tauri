@@ -414,6 +414,13 @@ impl ServerState {
     pub async fn handle_out_message(&self, message: OutMessage) {
         match message {
             OutMessage::Refresh => {
+                // 清空 devices，重新发现所有设备
+                *self.devices.write().await = HashMap::new();
+                let myself = self.setting.to_device_message(None);
+                self.devices.write().await.insert(
+                    myself.fingerprint.clone(),
+                    ("0.0.0.0:0".parse().unwrap(), myself),
+                );
                 let recv_addr = format!("{}:{}", self.setting.multicast_addr, self.setting.port)
                     .parse::<SocketAddrV4>()
                     .unwrap_or(SocketAddrV4::new(Ipv4Addr::new(224, 0, 0, 167), 53317));

@@ -7,6 +7,7 @@ use localsend_protocol::{
     request::send_register,
     server::{Server, ServerMessage, ServerSetting},
 };
+use uuid::Uuid;
 
 // for test
 #[tokio::main]
@@ -23,6 +24,7 @@ async fn main() {
         download: false,
         port: 53317,
         store_path: PathBuf::from("/Users/cakeal/Downloads"),
+        fingerprint: Uuid::new_v4().to_string(),
         ..Default::default()
     };
     let (server, mut server_rx) = Server::new(setting.clone(), out_rx);
