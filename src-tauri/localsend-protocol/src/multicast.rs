@@ -7,7 +7,10 @@ use tokio::net::UdpSocket;
 
 use crate::model::DeviceMessage;
 
-pub async fn multicast_message(recv_addr: &SocketAddrV4, message: &DeviceMessage) -> io::Result<()> {
+pub async fn multicast_message(
+    recv_addr: &SocketAddrV4,
+    message: &DeviceMessage,
+) -> io::Result<()> {
     let local_addr: SocketAddrV4 = "0.0.0.0:0".parse().unwrap();
     let socket = UdpSocket::bind(&local_addr).await?;
     let message = serde_json::json!(message).to_string();

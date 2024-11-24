@@ -9,7 +9,9 @@ use axum::{
 use serde::Deserialize;
 use tokio::{
     fs::File,
-    io::{AsyncWriteExt, BufWriter}, sync::watch, time,
+    io::{AsyncWriteExt, BufWriter},
+    sync::watch,
+    time,
 };
 use tokio_stream::StreamExt;
 
@@ -44,7 +46,11 @@ pub async fn handle_prepare_upload(
     Json(payload): Json<FileRequest>,
 ) -> Result<Json<FileResponse>, StatusCode> {
     log::info!("prepare_upload: {:?}", &payload);
-    let device = if let Some(device) = state.handel.get_device(payload.info.fingerprint.clone()).await {
+    let device = if let Some(device) = state
+        .handel
+        .get_device(payload.info.fingerprint.clone())
+        .await
+    {
         device.clone()
     } else {
         return Err(StatusCode::FORBIDDEN);
@@ -54,7 +60,11 @@ pub async fn handle_prepare_upload(
     let agreed_ids = state.handel.prepare_upload(payload.clone()).await;
     log::info!("{agreed_ids:?}");
     // 过滤取消传输的文件
-    let files: HashMap<String, FileInfo> = payload.files.into_iter().filter(|(file_id, _)| agreed_ids.contains(file_id)).collect();
+    let files: HashMap<String, FileInfo> = payload
+        .files
+        .into_iter()
+        .filter(|(file_id, _)| agreed_ids.contains(file_id))
+        .collect();
     let mission = Mission::new(files, device);
     // 新建下载任务
     state
@@ -83,7 +93,7 @@ pub async fn handle_upload(
     };
     let store_path = state.handel.get_store_path().await;
     let body_stream = request.into_body().into_data_stream();
-    save_to_file(&store_path, &file.file_name, body_stream, tx)
+    save_to_file(store_path, &file.file_name, body_stream, tx)
         .await
         .map_err(|e| {
             log::error!("Error saving file: {}", e);
@@ -92,12 +102,12 @@ pub async fn handle_upload(
 }
 
 async fn save_to_file(
-    dir: &str,
+    dir: PathBuf,
     file_name: &str,
     stream: BodyDataStream,
     progress: watch::Sender<usize>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let file_path = PathBuf::from(dir).join(file_name);
+    let file_path = dir.join(file_name);
     let file = File::create(file_path).await?;
     let mut writer = BufWriter::new(file);
     let mut stream =
@@ -105,7 +115,7 @@ async fn save_to_file(
     // 初始化定时器
     let mut interval = time::interval(Duration::from_millis(100));
     let mut total_written = 0usize;
-    
+
     // 更新进度
     loop {
         tokio::select! {

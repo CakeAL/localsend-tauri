@@ -14,13 +14,13 @@ import Settings from "./page/Settings.vue";
       size="large"
       animated
     >
-      <n-tab-pane name="recv" tab="接收" class="my-pane">
+      <n-tab-pane name="recv" tab="接收" class="my-pane" style="padding: 10px;">
         <Receive />
       </n-tab-pane>
-      <n-tab-pane name="send" tab="发送" class="my-pane">
+      <n-tab-pane name="send" tab="发送" class="my-pane" style="padding: 10px;">
         <Send />
       </n-tab-pane>
-      <n-tab-pane name="setting" tab="设置" class="my-pane">
+      <n-tab-pane name="setting" tab="设置" class="my-pane" style="padding: 10px;">
         <Settings />
       </n-tab-pane>
     </n-tabs>
@@ -35,7 +35,7 @@ import Settings from "./page/Settings.vue";
   user-select: none;
 }
 .my-pane {
-  height: calc(100vh - 70px);
+  height: calc(100vh - 73px);
   overflow: auto;
 }
 </style>

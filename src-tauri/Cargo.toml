@@ -20,8 +20,16 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-shell = "2"
+tauri-plugin-os = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+
+if-addrs = "0.13.3"
+log = "0.4.22"
+env_logger = "0.11.5"
+
+localsend-protocol = { path = "localsend-protocol" }
 
 [workspace]
 members = ["localsend-protocol"]

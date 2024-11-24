@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
+    path::PathBuf,
     sync::Arc,
 };
 
@@ -24,7 +25,7 @@ pub struct ServerSetting {
     pub port: u16,
     pub interface_addr: String,
     pub multicast_addr: String,
-    pub store_path: String,
+    pub store_path: PathBuf,
     pub fingerprint: String,
 }
 
@@ -55,7 +56,7 @@ impl Default for ServerSetting {
             port: 53317,
             interface_addr: "0.0.0.0".to_string(),
             multicast_addr: "224.0.0.167".to_string(),
-            store_path: "/Users/cakeal/Downloads".to_string(),
+            store_path: PathBuf::new(),
             fingerprint: "".to_string(),
         }
     }
@@ -72,12 +73,12 @@ pub struct ServerState {
 pub enum ServerMessage {
     DeviceConnect(SocketAddr, DeviceMessage), // 设备连接
     FilePrepareUpload(FileRequest, oneshot::Sender<HashSet<String>>), // 文件传入请求，发回同意文件传入的File id Set
-    Progress(String, watch::Receiver<usize>), // 某个文件id的下载进度条
-    CancelMission(Option<Mission>),           // 任务被取消
+    Progress(String, watch::Receiver<usize>),                         // 某个文件id的下载进度条
+    CancelMission(Option<Mission>),                                   // 任务被取消
 }
 
 pub enum OutMessage {
-    Refresh,                           // 重新发送一次组播消息
+    Refresh, // 重新发送一次组播消息
 }
 
 pub enum InnerMessage {
@@ -91,7 +92,7 @@ pub enum InnerMessage {
         UploadParam,
         oneshot::Sender<Option<(FileInfo, watch::Sender<usize>)>>,
     ),
-    GetStorePath(oneshot::Sender<String>),
+    GetStorePath(oneshot::Sender<PathBuf>),
     CancelMission(String),
 }
 
@@ -188,12 +189,12 @@ impl ServerHandle {
         }
     }
 
-    pub async fn get_store_path(&self) -> String {
+    pub async fn get_store_path(&self) -> PathBuf {
         let (tx, rx) = oneshot::channel();
         let _ = self.inner_sender.send(InnerMessage::GetStorePath(tx)).await;
 
         match rx.await {
-            Err(_) => "".to_string(),
+            Err(_) => PathBuf::new(),
             Ok(path) => path,
         }
     }
@@ -232,9 +233,12 @@ impl Server {
 
         // 监听组播
         let state1 = self.state.clone();
-        let recv_addr = format!("{}:{}", self.state.setting.multicast_addr, self.state.setting.port)
-                    .parse::<SocketAddrV4>()
-                    .unwrap_or(SocketAddrV4::new(Ipv4Addr::new(224, 0, 0, 167), 53317));
+        let recv_addr = format!(
+            "{}:{}",
+            self.state.setting.multicast_addr, self.state.setting.port
+        )
+        .parse::<SocketAddrV4>()
+        .unwrap_or(SocketAddrV4::new(Ipv4Addr::new(224, 0, 0, 167), 53317));
         let _ = tokio::spawn(async move {
             loop {
                 let (device_message, sender_addr) = match multicast_listener(&recv_addr).await {
@@ -345,8 +349,7 @@ impl ServerState {
                     .send(ServerMessage::FilePrepareUpload(file_req, out_tx))
                     .await;
                 // 等待外部同意文件上传请求
-                if let Ok(agreed) = out_rx.await
-                {
+                if let Ok(agreed) = out_rx.await {
                     let _ = tx.send(agreed);
                 } else {
                     let _ = tx.send(HashSet::new());

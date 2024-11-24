@@ -1,4 +1,4 @@
-use std::{collections::HashSet, net::SocketAddr};
+use std::{collections::HashSet, net::SocketAddr, path::PathBuf};
 
 use tokio::sync::mpsc;
 
@@ -22,6 +22,7 @@ async fn main() {
         protocol: Some(localsend_protocol::model::Protocol::Http),
         download: false,
         port: 53317,
+        store_path: PathBuf::from("/Users/cakeal/Downloads"),
         ..Default::default()
     };
     let (server, mut server_rx) = Server::new(setting.clone(), out_rx);
