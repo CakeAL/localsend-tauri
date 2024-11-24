@@ -12,7 +12,6 @@ use crate::{
     mission::Mission,
     model::{DeviceMessage, DeviceType, FileInfo, FileRequest, Protocol, UploadParam},
     multicast::{multicast_listener, multicast_message},
-    request::send_register,
 };
 
 #[derive(Clone, Debug)]
@@ -72,14 +71,13 @@ pub struct ServerState {
 
 pub enum ServerMessage {
     DeviceConnect(SocketAddr, DeviceMessage), // 设备连接
-    FilePrepareUpload(FileRequest),           // 文件传入
+    FilePrepareUpload(FileRequest, oneshot::Sender<HashSet<String>>), // 文件传入请求，发回同意文件传入的File id Set
     Progress(String, watch::Receiver<usize>), // 某个文件id的下载进度条
     CancelMission(Option<Mission>),           // 任务被取消
 }
 
 pub enum OutMessage {
     Refresh,                           // 重新发送一次组播消息
-    FileAgreedUpload(HashSet<String>), // 同意文件传入的File Id Vec
 }
 
 pub enum InnerMessage {
@@ -341,15 +339,17 @@ impl ServerState {
                 }
             }
             InnerMessage::FilePrepareUpload(file_req, tx) => {
+                let (out_tx, out_rx) = oneshot::channel();
                 let _ = self
                     .sender
-                    .send(ServerMessage::FilePrepareUpload(file_req))
+                    .send(ServerMessage::FilePrepareUpload(file_req, out_tx))
                     .await;
                 // 等待外部同意文件上传请求
-                if let Some(OutMessage::FileAgreedUpload(agreed)) =
-                    self.receiver.write().await.recv().await
+                if let Ok(agreed) = out_rx.await
                 {
-                    tx.send(agreed).unwrap();
+                    let _ = tx.send(agreed);
+                } else {
+                    let _ = tx.send(HashSet::new());
                 }
             }
             InnerMessage::AddMission(mission_id, mission) => {
@@ -424,7 +424,6 @@ impl ServerState {
                     }
                 }
             }
-            _ => {}
         }
     }
 }

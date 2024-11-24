@@ -5,7 +5,7 @@ use tokio::sync::mpsc;
 use localsend_protocol::{
     model::DeviceType,
     request::send_register,
-    server::{OutMessage, Server, ServerMessage, ServerSetting},
+    server::{Server, ServerMessage, ServerSetting},
 };
 
 // for test
@@ -14,7 +14,7 @@ async fn main() {
     let _ = env_logger::builder()
         .filter_level(log::LevelFilter::Info)
         .try_init();
-    let (out_tx, out_rx) = mpsc::channel(8);
+    let (_out_tx, out_rx) = mpsc::channel(8);
     let setting = ServerSetting {
         alias: "test_device".to_string(),
         device_model: Some("test_model".to_string()),
@@ -36,14 +36,14 @@ async fn main() {
                             log::error!("send register error: {e:?}");
                         }
                     }
-                    ServerMessage::FilePrepareUpload(file_req) => {
+                    ServerMessage::FilePrepareUpload(file_req, agreed_tx) => {
                         // 模拟全部同意
                         let agreed_ids = file_req
                             .files
                             .into_keys()
                             .map(|file_id| file_id)
                             .collect::<HashSet<String>>();
-                        let _ = out_tx.send(OutMessage::FileAgreedUpload(agreed_ids)).await;
+                        let _ = agreed_tx.send(agreed_ids);
                     }
                     ServerMessage::Progress(file_id, mut rx) => {
                         while rx.changed().await.is_ok() {

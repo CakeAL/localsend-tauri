@@ -52,6 +52,7 @@ pub async fn handle_prepare_upload(
 
     // 获取同意下载的文件 id
     let agreed_ids = state.handel.prepare_upload(payload.clone()).await;
+    log::info!("{agreed_ids:?}");
     // 过滤取消传输的文件
     let files: HashMap<String, FileInfo> = payload.files.into_iter().filter(|(file_id, _)| agreed_ids.contains(file_id)).collect();
     let mission = Mission::new(files, device);
