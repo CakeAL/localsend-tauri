@@ -1,6 +1,8 @@
+use std::collections::HashSet;
+
 use crate::model::AppState;
 use localsend_protocol::server::{Server, ServerMessage};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Listener, Manager};
 use tokio::sync::mpsc;
 
 pub async fn run_server(app_handle: AppHandle) {
@@ -38,7 +40,14 @@ async fn handle_server_message(m: ServerMessage, app_handle: AppHandle) {
                 .insert(device.fingerprint.clone(), (addr, device));
         }
         ServerMessage::FilePrepareUpload(file_req, agreed_tx) => {
-            // TODO:
+            if let Err(e) = app_handle.emit("file-prepare-upload", file_req) {
+                log::error!("emit error: {e:?}");
+            }
+            app_handle.once_any("agreed-set", |event| {
+                // 你怎么敢假定前端传过来是错误的😠
+                let agreed_set: HashSet<String> = serde_json::from_str(event.payload()).unwrap();
+                let _ = agreed_tx.send(agreed_set);
+            });
         }
         ServerMessage::Progress(file_id, mut rx) => {
             // TODO:

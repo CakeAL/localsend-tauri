@@ -8,7 +8,7 @@ const deviceInfo = ref<[DeviceMessage | null, Array<string>]>([null, [""]]);
 const getDeviceInfo = async () => {
   let res = await invoke<string>("get_device_info");
   deviceInfo.value = JSON.parse(res);
-  console.log(deviceInfo.value);
+  // console.log(deviceInfo.value);
 };
 
 getDeviceInfo();
