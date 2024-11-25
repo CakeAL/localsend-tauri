@@ -135,10 +135,7 @@ impl ServerHandle {
             .send(InnerMessage::GetDevice(fingerprint, tx))
             .await;
 
-        match rx.await {
-            Err(_) => None,
-            Ok(device) => device,
-        }
+        (rx.await).unwrap_or_default()
     }
 
     pub async fn prepare_upload(&self, file_req: FileRequest) -> HashSet<String> {
@@ -147,10 +144,7 @@ impl ServerHandle {
             .inner_sender
             .send(InnerMessage::FilePrepareUpload(file_req, tx))
             .await;
-        match rx.await {
-            Err(_) => HashSet::new(),
-            Ok(ids) => ids,
-        }
+        rx.await.unwrap_or_default()
     }
 
     pub async fn insert_mission(&self, mission_id: String, mission: Mission) {
@@ -167,10 +161,7 @@ impl ServerHandle {
             .send(InnerMessage::GetMission(mission_id, tx))
             .await;
 
-        match rx.await {
-            Err(_) => None,
-            Ok(m) => m,
-        }
+        rx.await.unwrap_or_default()
     }
 
     pub async fn get_file_info(
@@ -183,10 +174,7 @@ impl ServerHandle {
             .send(InnerMessage::GetFileInfo(param, tx))
             .await;
 
-        match rx.await {
-            Err(_) => None,
-            Ok(r) => r,
-        }
+        rx.await.unwrap_or_default()
     }
 
     pub async fn get_store_path(&self) -> PathBuf {
@@ -239,7 +227,7 @@ impl Server {
         )
         .parse::<SocketAddrV4>()
         .unwrap_or(SocketAddrV4::new(Ipv4Addr::new(224, 0, 0, 167), 53317));
-        let _ = tokio::spawn(async move {
+        tokio::spawn(async move {
             loop {
                 let (device_message, sender_addr) = match multicast_listener(&recv_addr).await {
                     Ok(msg) => msg,
@@ -268,26 +256,20 @@ impl Server {
         // 监听服务器内部消息
         let (itx, mut irx) = mpsc::channel(8);
         let state = self.state.clone();
-        let _ = tokio::spawn(async move {
+        tokio::spawn(async move {
             loop {
-                match irx.recv().await {
-                    Some(message) => {
-                        state.handle_inner_message(message).await;
-                    }
-                    None => {}
+                if let Some(message) = irx.recv().await {
+                    state.handle_inner_message(message).await;
                 }
             }
         });
 
         // 监听服务器外部消息
         let state = self.state.clone();
-        let _ = tokio::spawn(async move {
+        tokio::spawn(async move {
             loop {
-                match state.receiver.write().await.recv().await {
-                    Some(message) => {
-                        state.handle_out_message(message).await;
-                    }
-                    None => {}
+                if let Some(message) = state.receiver.write().await.recv().await {
+                    state.handle_out_message(message).await;
                 }
             }
         });

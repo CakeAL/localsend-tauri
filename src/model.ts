@@ -10,9 +10,9 @@ export interface DeviceMessage {
 }
 
 export interface FileRequest {
-    info: DeviceMessage;
-    files: Record<string, FileInfo>;
-  }
+  info: DeviceMessage;
+  files: Record<string, FileInfo>;
+}
 
 export interface FileInfo {
   id: string;
@@ -21,4 +21,7 @@ export interface FileInfo {
   fileType: string;
   sha256?: string; // Optional
   preview?: Uint8Array; // Optional
+  downloaded?: number;
+  speed?: number;
+  progress?: number;
 }

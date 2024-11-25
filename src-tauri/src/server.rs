@@ -11,7 +11,7 @@ pub async fn run_server(app_handle: AppHandle) {
     let setting = app_state.setting.read().await.clone();
     *app_state.sender.write().await = Some(out_tx);
     let (server, mut server_rx) = Server::new(setting, out_rx);
-    let _ = tokio::spawn(async move {
+    tokio::spawn(async move {
         loop {
             let app_handle = app_handle.clone();
             if let Some(message) = server_rx.recv().await {
@@ -50,9 +50,18 @@ async fn handle_server_message(m: ServerMessage, app_handle: AppHandle) {
             });
         }
         ServerMessage::Progress(file_id, mut rx) => {
-            // TODO:
+            let app_handle = app_handle.clone();
+            tokio::spawn(async move {
+                while rx.changed().await.is_ok() {
+                    // println!("file_id: {file_id}, rx: {}", *rx.borrow());
+                    if let Err(e) = app_handle.emit("progress", (file_id.clone(), *rx.borrow())) {
+                        log::error!("emit error: {e:?}");
+                    }
+                }
+                // println!("file_id: {file_id}, finished");
+            });
         }
-        ServerMessage::CancelMission(mission_id) => {
+        ServerMessage::CancelMission(_mission_id) => {
             // TODO:
         }
     }

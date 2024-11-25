@@ -21,7 +21,7 @@ pub async fn run() {
             let app_state = AppState::new(store_path);
             app.manage(app_state);
             let app_handle = app.handle().clone();
-            let _ = tokio::spawn(async move {
+            tokio::spawn(async move {
                 server::run_server(app_handle).await;
             });
             Ok(())
