@@ -11,20 +11,42 @@ pub async fn multicast_message(
     recv_addr: &SocketAddrV4,
     message: &DeviceMessage,
 ) -> io::Result<()> {
-    let local_addr: SocketAddrV4 = "0.0.0.0:0".parse().unwrap();
-    let socket = UdpSocket::bind(&local_addr).await?;
-    let message = serde_json::json!(message).to_string();
-    // log::info!("Send multicast message on {:?}", socket);
-    socket
-        .send_to(message.as_bytes(), &recv_addr)
-        .await
-        .map(|_| ())
+    let ipv4s = if_addrs::get_if_addrs()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|iface| match iface.addr {
+            if_addrs::IfAddr::V4(v4) if !v4.is_loopback() => Some(v4.ip.into()),
+            _ => None,
+        })
+        .collect::<Vec<Ipv4Addr>>();
+    // dbg!(&ipv4s);
+    for ipv4 in ipv4s {
+        let local_addr = SocketAddrV4::new(ipv4, 0);
+        let socket = UdpSocket::bind(&local_addr).await?;
+        let message = serde_json::json!(message).to_string();
+        // log::info!("Send multicast message on {:?}", socket);
+        // 多发几次
+        for _ in 0..5 {
+            socket.send_to(message.as_bytes(), &recv_addr).await?;
+        }
+    }
+    Ok(())
 }
 
 pub async fn multicast_listener(addr: &SocketAddrV4) -> io::Result<(DeviceMessage, SocketAddr)> {
     let local_addr = SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, addr.port());
     let socket = UdpSocket::bind(&local_addr).await?;
-    socket.join_multicast_v4(addr.ip().to_owned(), Ipv4Addr::UNSPECIFIED)?;
+    let ipv4s = if_addrs::get_if_addrs()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|iface| match iface.addr {
+            if_addrs::IfAddr::V4(v4) if !v4.is_loopback() => Some(v4.ip.into()),
+            _ => None,
+        })
+        .collect::<Vec<Ipv4Addr>>();
+    for iface in ipv4s.iter() {
+        socket.join_multicast_v4(addr.ip().to_owned(), *iface)?;
+    }
     let mut buf = vec![0u8; 1024];
     log::info!("start multicast listening on {:?}", socket);
     let (len, sender_addr) = socket.recv_from(&mut buf).await?;
@@ -58,6 +80,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_receive_message() {
+        // let _ = env_logger::builder()
+        //     .filter_level(log::LevelFilter::Info)
+        //     .is_test(true)
+        //     .try_init();
         let addr: SocketAddrV4 = "224.0.0.167:53317".parse().unwrap();
         for _i in 0..5 {
             let (message, sender_addr) = multicast_listener(&addr).await.unwrap();

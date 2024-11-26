@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">localsend-tauri</string>
+    <string name="main_activity_title">localsend-tauri</string>
+</resources>

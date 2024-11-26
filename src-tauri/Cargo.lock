@@ -1936,6 +1936,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "env_logger",
+ "if-addrs",
  "log",
  "reqwest",
  "rustls",

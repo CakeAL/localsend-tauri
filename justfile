@@ -3,12 +3,15 @@ default:
 
 alias b := build
 alias d := dev
+alias da := dev-android
 
 build: 
     cargo tauri build
 
 dev: 
     cargo tauri dev
+dev-android:
+    cargo tauri android dev
 
 build-android:
     cargo tauri android build --apk --target aarch64
