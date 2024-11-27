@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, path::Path, time::Duration};
+use std::{net::SocketAddr, path::PathBuf, time::Duration};
 
 use reqwest::Client;
 use tokio::fs;
@@ -23,24 +23,25 @@ pub async fn send_register(
 }
 
 pub async fn prepare_upload(
-    file_req: &FileRequest,
+    file_req: FileRequest,
     addr: &SocketAddr,
 ) -> Result<FileResponse, Box<dyn std::error::Error>> {
-    let url = format!("http://{}/api/localsend/v2/prepare_upload", addr);
+    let url = format!("http://{}/api/localsend/v2/prepare-upload", addr);
     let response = Client::new()
         .post(url)
         .body(serde_json::json!(file_req).to_string())
         .timeout(Duration::from_secs(60))
         .send()
         .await?;
-    Ok(serde_json::from_slice(&response.bytes().await?)?)
+    let text = response.text().await?;
+    Ok(serde_json::from_str(&text)?)
 }
 
 pub async fn upload(
     upload_param: UploadParam,
-    file_path: &Path,
+    file_path: &PathBuf,
     addr: &SocketAddr,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let url = format!(
         "http://{}/api/localsend/v2/upload?sessionId={}&fileId={}&token={}",
         addr, upload_param.session_id, upload_param.file_id, upload_param.token

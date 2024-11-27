@@ -5,6 +5,7 @@ import Send from "./page/Send.vue";
 import Settings from "./page/Settings.vue";
 import { emit, listen } from "@tauri-apps/api/event";
 import { FileRequest } from "./model";
+import { showFileSize } from "./util";
 
 const fileReq = ref<FileRequest>();
 const active = ref(false);
@@ -38,20 +39,6 @@ listen<[string, number]>("progress", (event) => {
   }
   calcSpeed();
 });
-
-function showFileSize(size: number): string {
-  if (size < 1024) {
-    return `${size} Bytes`;
-  } else if (size < Math.pow(1024, 2)) {
-    return `${(size / 1024).toFixed(2)} KB`;
-  } else if (size < Math.pow(1024, 3)) {
-    return `${(size / Math.pow(1024, 2)).toFixed(2)} MB`;
-  } else if (size < Math.pow(1024, 4)) {
-    return `${(size / Math.pow(1024, 3)).toFixed(2)} GB`;
-  } else {
-    return `${(size / Math.pow(1024, 4)).toFixed(2)} TB`;
-  }
-}
 
 function calcSpeed() {
   let allSize = 0;
