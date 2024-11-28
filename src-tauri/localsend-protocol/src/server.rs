@@ -396,8 +396,8 @@ impl ServerState {
     pub async fn handle_out_message(&self, message: OutMessage) {
         match message {
             OutMessage::Refresh => {
-                // 清空 devices，重新发现所有设备
-                *self.devices.write().await = HashMap::new();
+                // // 清空 devices，重新发现所有设备
+                // *self.devices.write().await = HashMap::new();
                 let myself = self.setting.to_device_message(None);
                 self.devices.write().await.insert(
                     myself.fingerprint.clone(),

@@ -1015,6 +1015,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "file-picker-android"
+version = "0.1.2"
+source = "git+https://github.com/Berrysoft/file-picker-android.git#54db797c59c353115007af6674c62194df153d17"
+dependencies = [
+ "serde",
+ "tauri",
+ "tauri-plugin",
+]
+
+[[package]]
 name = "flate2"
 version = "1.0.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2076,6 +2086,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "env_logger",
+ "file-picker-android",
  "if-addrs",
  "localsend-protocol",
  "log",

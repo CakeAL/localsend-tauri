@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
-    net::{IpAddr, SocketAddr}, path::PathBuf,
+    net::{IpAddr, SocketAddr},
+    path::PathBuf,
 };
 
 use localsend_protocol::{
@@ -61,27 +62,64 @@ pub async fn open_file_picker(app: tauri::AppHandle) -> Result<String, String> {
             let metadata = fs::metadata(path).unwrap();
             let id = uuid::Uuid::new_v4().to_string();
             id_path.insert(id.clone(), path.to_str().unwrap_or_default().to_string());
-                FileInfo {
-                    id,
-                    file_name: path
-                        .file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .to_string(),
-                    file_type: path
-                        .extension()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .to_string(),
-                    size: metadata.len(),
-                    sha256: None,
-                    preview: None,}
+            FileInfo {
+                id,
+                file_name: path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string(),
+                file_type: path
+                    .extension()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string(),
+                size: metadata.len(),
+                sha256: None,
+                preview: None,
+            }
         })
         .collect::<Vec<FileInfo>>();
     Ok(serde_json::json!([id_path, file_infos]).to_string())
 }
 
-// TODO: android open_file_picker
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn open_file_picker(app: tauri::AppHandle) -> Result<String, String> {
+    use file_picker_android::PickerPlugin;
+    use tauri::Manager;
+    use std::fs;
+
+    let picker_plugin = app.state::<PickerPlugin<tauri::Wry>>();
+    let files = picker_plugin.pick_files().unwrap_or(Vec::new());
+    let mut id_path = HashMap::new();
+    let file_infos = files
+        .into_iter()
+        .map(|file_path| {
+            let path = file_path.as_path();
+            let metadata = fs::metadata(path).unwrap();
+            let id = uuid::Uuid::new_v4().to_string();
+            id_path.insert(id.clone(), path.to_str().unwrap_or_default().to_string());
+            FileInfo {
+                id,
+                file_name: path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string(),
+                file_type: path
+                    .extension()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string(),
+                size: metadata.len(),
+                sha256: None,
+                preview: None,
+            }
+        })
+        .collect::<Vec<FileInfo>>();
+    Ok(serde_json::json!([id_path, file_infos]).to_string())
+}
 
 #[tauri::command(async)]
 pub async fn prepare_upload_files(
@@ -117,12 +155,15 @@ pub async fn prepare_upload_files(
     let mut handles = vec![];
     for id in agreed_vec {
         let token = resp.files.get(&id).unwrap().clone();
-        let upload_param = UploadParam { session_id: resp.session_id.clone(), file_id: id.clone(), token };
+        let upload_param = UploadParam {
+            session_id: resp.session_id.clone(),
+            file_id: id.clone(),
+            token,
+        };
         let file_path = PathBuf::from(id_path.get(&id).unwrap());
         let addr = addr.clone();
-        let join_handle = tokio::spawn(async move {
-            upload(upload_param, &file_path, &addr).await
-        });
+        let join_handle =
+            tokio::spawn(async move { upload(upload_param, &file_path, &addr).await });
         handles.push(join_handle);
     }
 
@@ -130,11 +171,11 @@ pub async fn prepare_upload_files(
         match handle.await {
             Ok(res) if res.is_err() => {
                 log::error!("upload error: {:?}", res.unwrap_err());
-            },
-            Ok(_) => {},
+            }
+            Ok(_) => {}
             Err(e) => {
                 log::error!("upload error: {}", e);
-            },
+            }
         }
     }
     Ok(())

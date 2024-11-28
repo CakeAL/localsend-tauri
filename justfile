@@ -10,6 +10,7 @@ build:
 
 dev: 
     cargo tauri dev
+
 dev-android:
     cargo tauri android dev
 
@@ -18,3 +19,6 @@ build-android:
 
 clippy: 
     cd src-tauri && cargo clippy
+
+clean: 
+    cd src-tauri && cargo clean

@@ -29,11 +29,13 @@ pub async fn prepare_upload(
     let url = format!("http://{}/api/localsend/v2/prepare-upload", addr);
     let response = Client::new()
         .post(url)
+        .header("Content-Type", "application/json")
         .body(serde_json::json!(file_req).to_string())
         .timeout(Duration::from_secs(60))
         .send()
         .await?;
     let text = response.text().await?;
+    // dbg!(&text);
     Ok(serde_json::from_str(&text)?)
 }
 

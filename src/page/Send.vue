@@ -15,7 +15,6 @@ listen<[string, DeviceMessage]>("device-connect", (event) => {
 });
 
 const refresh = async () => {
-  devices.value = [];
   await invoke("refresh");
 };
 

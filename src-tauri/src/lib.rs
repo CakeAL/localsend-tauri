@@ -14,11 +14,13 @@ pub async fn run() {
         .filter_level(log::LevelFilter::Info)
         .try_init();
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_os::init())
-        .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![
+        .plugin(tauri_plugin_shell::init());
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(file_picker_android::init());
+    builder.invoke_handler(tauri::generate_handler![
             get_device_info,
             refresh,
             open_file_picker,
